@@ -16,10 +16,10 @@ from functionregister import FunctionRegister
 log = logging.getLogger(__name__)
 
 
-class ZRPCTimeout(Exception):
+class AZRPCTimeout(Exception):
     pass
 
-class ZRPCStop(Exception):
+class AZRPCStop(Exception):
     pass
 
 
@@ -47,10 +47,10 @@ DAT_PICKLE = '\001'
 
 ctx = zmq.Context.instance()
 
-ipc_prefix = '/tmp/zrpc-'
+ipc_prefix = '/tmp/azrpc-'
 
 
-class ZRPC(FunctionRegister):
+class AZRPC(FunctionRegister):
     """Base RPC class"""
 
     identity = None
@@ -60,7 +60,7 @@ class ZRPC(FunctionRegister):
     def __init__(self, identity, port=5571, heartbeat_interval=1, heartbeat_timeout=3, client_timeout=30):
         assert heartbeat_timeout > heartbeat_interval
         assert client_timeout > heartbeat_timeout
-        super(ZRPC, self).__init__()
+        super(AZRPC, self).__init__()
         if identity:
             self._set_identity(identity)
         self.port = port
@@ -160,7 +160,7 @@ class ZRPC(FunctionRegister):
 
         # Get a client instance
         if target not in self.clients:
-            self.clients[target] = ZRPCClient(self, target)
+            self.clients[target] = AZRPCClient(self, target)
             log.info('%s: Created new client with connection to %s', self.identity, target)
             if self.control_greenlet is None:
                 self.control_greenlet = gevent.spawn_later(self.client_timeout, self.controller)
@@ -189,7 +189,7 @@ class BaseServer(object):
                     # Check heartbeat timeout
                     diff = self.rpc.heartbeat_timeout - (t - msg.last_recv)
                     if diff < 0:
-                        msg.greenlet.kill(exception=ZRPCTimeout(self.rpc.heartbeat_timeout))
+                        msg.greenlet.kill(exception=AZRPCTimeout(self.rpc.heartbeat_timeout))
                         continue
                     elif diff < next_check:
                         next_check = diff
@@ -338,7 +338,7 @@ def _check_ipc_socket(rpc, ipc):
         os.unlink(path)
 
 
-class ZRPCServer(BaseServer):
+class AZRPCServer(BaseServer):
     """Single RPC instance"""
 
     def __init__(self, rpc):
@@ -350,9 +350,9 @@ class ZRPCServer(BaseServer):
         self.router.bind(rpc.ipc)
         if rpc.port:
             self.router.bind('tcp://*:%d' % rpc.port)
-        super(ZRPCServer, self).__init__(rpc)
+        super(AZRPCServer, self).__init__(rpc)
 
-class ZRPCWorker(BaseServer):
+class AZRPCWorker(BaseServer):
     """One of many RPC worker instances"""
 
     def __init__(self, rpc, worker_id):
@@ -361,10 +361,10 @@ class ZRPCWorker(BaseServer):
         self.router.setsockopt(zmq.LINGER, 0)
         self.router.setsockopt(zmq.IDENTITY, self.identity)
         self.router.connect('ipc://%s%s-worker.sock' % (ipc_prefix, rpc.identity))
-        super(ZRPCWorker, self).__init__(rpc)
+        super(AZRPCWorker, self).__init__(rpc)
 
 
-class ZRPCLoadbalancer(object):
+class AZRPCLoadbalancer(object):
     """Single RPC load balancer"""
 
     def __init__(self, rpc):
@@ -408,7 +408,7 @@ class ZRPCLoadbalancer(object):
                 log.exception('%s: Error running at RPC loadbalancer', self.rpc.identity)
 
 
-class ZRPCClient(object):
+class AZRPCClient(object):
     """RPC client class"""
 
     control_greenlet = None
@@ -439,7 +439,7 @@ class ZRPCClient(object):
             self.control_greenlet = None
         for msg in self.messages.values():
             if not msg.result.ready():
-                msg.result.set_exception(ZRPCStop())
+                msg.result.set_exception(AZRPCStop())
         self.client.close()
 
     # Tool and timeout functions
@@ -493,7 +493,7 @@ class ZRPCClient(object):
                     cmd, data = msg.queue.get()
                     self.last = time.time()
                     if cmd == SRV_CANCEL:
-                        if isinstance(data, ZRPCTimeout):
+                        if isinstance(data, AZRPCTimeout):
                             raise data
                         break
                     yield data
@@ -513,9 +513,9 @@ class ZRPCClient(object):
                 diff = self.rpc.heartbeat_timeout - (t - msg.last)
                 if diff < 0:
                     if not msg.result.ready():
-                        msg.result.set_exception(ZRPCTimeout(self.rpc.heartbeat_timeout))
+                        msg.result.set_exception(AZRPCTimeout(self.rpc.heartbeat_timeout))
                     if msg.queue is not None:
-                        msg.queue.put((SRV_CANCEL, ZRPCTimeout(self.rpc.heartbeat_timeout)))
+                        msg.queue.put((SRV_CANCEL, AZRPCTimeout(self.rpc.heartbeat_timeout)))
                 elif diff < next_check:
                     next_check = diff
         finally:
@@ -606,7 +606,7 @@ def main():
 
     logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s', level=logging.DEBUG)
 
-    rpc = ZRPC('test')
+    rpc = AZRPC('test')
 
     @rpc.register
     def foo1(a, b):
@@ -642,13 +642,13 @@ def main():
     rpc.add(gevent.sleep, 'sleep')
 
     if sys.argv[1] == 'server':
-        ZRPCServer(rpc)
+        AZRPCServer(rpc)
         gevent.wait()
     elif sys.argv[1] == 'worker':
-        ZRPCWorker(rpc, sys.argv[2])
+        AZRPCWorker(rpc, sys.argv[2])
         gevent.wait()
     elif sys.argv[1] == 'loadbalancer':
-        ZRPCLoadbalancer(rpc)
+        AZRPCLoadbalancer(rpc)
         gevent.wait()
     elif sys.argv[1] == 'client':
         print "stream"

@@ -1,4 +1,4 @@
-# ZRPC
+# AZRPC
 
 A robust and feature rich RPC system based on ZeroMQ and gevent.
 
