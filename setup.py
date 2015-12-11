@@ -14,6 +14,6 @@ setup(
         'functionregister',
     ],
     dependency_links=[
-        'https://github.com/max0d41/functionregister/archive/master.zip#egg=functionregister',
+        'https://github.com/max0d41/functionregister/archive/master.zip#egg=functionregister-1.0.0',
     ],
 )

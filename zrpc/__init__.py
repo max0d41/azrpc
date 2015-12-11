@@ -540,7 +540,8 @@ class ZRPCClient(object):
                 try:
                     msg = self.messages[uuid]
                 except KeyError:
-                    self.on_missing_message(uuid)
+                    if cmd != SRV_CANCEL:
+                        self.on_missing_message(uuid)
                 else:
                     msg.last = time.time()
                     if cmd == SRV_HEARTBEAT:
