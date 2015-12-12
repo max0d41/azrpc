@@ -322,7 +322,7 @@ class ServerMessage(object):
         else:
             if msg_type == CLI_STREAM:
                 cmd = SRV_STREAM
-            if msg_type == CLI_STREAM_SYNC:
+            elif msg_type == CLI_STREAM_SYNC:
                 cmd = SRV_STREAM_SYNC
             else:
                 cmd = SRV_OK
