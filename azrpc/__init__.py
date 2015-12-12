@@ -24,26 +24,29 @@ class AZRPCStop(Exception):
 
 
 # Client messages
-CLI_SPAWN = '\000'
-CLI_SPAWN_SAFE = '\001'
-CLI_RUN = '\002'
-CLI_EXECUTE = '\003'
-CLI_PONG = '\004'
-CLI_STREAM = '\005'
-CLI_CANCEL = '\006'
+CLI_SPAWN = '\x00'
+CLI_SPAWN_SAFE = '\x01'
+CLI_RUN = '\x02'
+CLI_EXECUTE = '\x03'
+CLI_PONG = '\x04'
+CLI_STREAM = '\x05'
+CLI_STREAM_SYNC = '\x06'
+CLI_ACKNOWLEDGED = '\x07'
+CLI_CANCEL = '\x08'
 
 # Server messages
-SRV_OK = '\000'
-SRV_STARTED = '\001'
-SRV_ERROR = '\002'
-SRV_HEARTBEAT = '\003'
-SRV_PING = '\004'
-SRV_STREAM = '\005'
-SRV_CANCEL = '\006'
+SRV_OK = '\xa0'
+SRV_STARTED = '\xa1'
+SRV_ERROR = '\xa2'
+SRV_HEARTBEAT = '\xa3'
+SRV_PING = '\xa4'
+SRV_STREAM = '\xa5'
+SRV_STREAM_SYNC = '\xa6'
+SRV_CANCEL = '\xa7'
 
 # Data types
-DAT_RAW = '\000'
-DAT_PICKLE = '\001'
+DAT_RAW = '\xf0'
+DAT_PICKLE = '\xf1'
 
 ctx = zmq.Context.instance()
 
@@ -118,6 +121,10 @@ class AZRPC(FunctionRegister):
                 for data in self.stream(target, name, *args, **kwargs):
                     yield data
 
+            def stream_sync(s, target, *args, **kwargs):
+                for data in self.stream_sync(target, name, *args, **kwargs):
+                    yield data
+
         return Func()
 
     def get_client_address(self, target):
@@ -147,6 +154,13 @@ class AZRPC(FunctionRegister):
         """Call function and wait for response, then start the generator. Interrupt the call on the server if the client connection is lost.
         Ping pong method."""
         for data in self._call('stream', target, name, args, kwargs):
+            yield data
+
+    def stream_sync(self, target, name, *args, **kwargs):
+        """Call function and wait for response, then start the generator. Interrupt the call on the server if the client connection is lost.
+        Sends the next packet only when the receive is acknowledged.
+        Ping pong method."""
+        for data in self._call('stream_sync', target, name, args, kwargs):
             yield data
 
     def _call(self, call_func, target, name, args, kwargs):
@@ -249,11 +263,13 @@ class ServerMessage(object):
             self.spawn(*cPickle.loads(data))
             return
 
-        elif msg_type in (CLI_RUN, CLI_EXECUTE, CLI_STREAM):
+        elif msg_type in (CLI_RUN, CLI_EXECUTE, CLI_STREAM, CLI_STREAM_SYNC):
             self.last_send = 0
             if msg_type == CLI_RUN:
                 self.heartbeat_msg = SRV_HEARTBEAT
             else:
+                if msg_type == CLI_STREAM_SYNC:
+                    self.acknowledged_queue = Queue()
                 self.heartbeat_msg = SRV_PING
                 self.last_recv = time.time()
             try:
@@ -265,22 +281,17 @@ class ServerMessage(object):
             finally:
                 del self.server.messages[self.uuid]
 
-        elif msg_type == CLI_PONG:
+        elif msg_type in (CLI_PONG, CLI_ACKNOWLEDGED, CLI_CANCEL):
             try:
                 msg = self.server.messages[self.uuid]
             except KeyError:
-                log.info('%s: Missing message for pong %s', self.server.rpc.identity, self.uuid.encode('hex'))
+                log.info('%s: Missing message for %r %s', self.server.rpc.identity, msg_type, self.uuid.encode('hex'))
             else:
                 msg.last_recv = time.time()
-
-        elif msg_type == CLI_CANCEL:
-            try:
-                msg = self.server.messages[self.uuid]
-            except KeyError:
-                log.info('%s: Missing message for pong %s', self.server.rpc.identity, self.uuid.encode('hex'))
-            else:
-                msg.last_recv = time.time()
-                msg.greenlet.kill()
+                if msg_type == CLI_ACKNOWLEDGED:
+                    msg.acknowledged_queue.put(None)
+                elif msg_type == CLI_CANCEL:
+                    msg.greenlet.kill()
 
         else:
             log.warning('%s: Unknown message type: %s', self.server.rpc.identity, msg_type)
@@ -309,9 +320,14 @@ class ServerMessage(object):
             log.exception('Failed calling %r(%r, %r): %r', func, args, kwargs, result)
             cmd = SRV_ERROR
         else:
-            cmd = SRV_STREAM if msg_type == CLI_STREAM else SRV_OK
+            if msg_type == CLI_STREAM:
+                cmd = SRV_STREAM
+            if msg_type == CLI_STREAM_SYNC:
+                cmd = SRV_STREAM_SYNC
+            else:
+                cmd = SRV_OK
 
-        if cmd == SRV_STREAM:
+        if cmd in (SRV_STREAM, SRV_STREAM_SYNC):
             try:
                 for data in result:
                     if isinstance(data, basestring):
@@ -320,6 +336,11 @@ class ServerMessage(object):
                         data_type = DAT_PICKLE
                         data = cPickle.dumps(data, 2)
                     self.send([b'', self.uuid, cmd, data_type, data])
+                    if cmd == SRV_STREAM_SYNC:
+                        try:
+                            self.acknowledged_queue.get()
+                        except AZRPCTimeout:
+                            break
             finally:
                 self.send([b'', self.uuid, SRV_CANCEL, DAT_RAW, b''])
         else:
@@ -483,8 +504,8 @@ class AZRPCClient(object):
         msg = self._call(CLI_EXECUTE, func, args, kwargs)
         return self._get_result(msg)
 
-    def stream(self, func, *args, **kwargs):
-        msg = self._call(CLI_STREAM, func, args, kwargs)
+    def _stream(self, cli_cmd, func, args, kwargs):
+        msg = self._call(cli_cmd, func, args, kwargs)
         try:
             self._get_result(msg, remove_message=False)
             cmd = None
@@ -497,11 +518,21 @@ class AZRPCClient(object):
                             raise data
                         break
                     yield data
+                    if cli_cmd == CLI_STREAM_SYNC:
+                        self._send([b'', msg.uuid, CLI_ACKNOWLEDGED, DAT_RAW, b''])
             finally:
                 if cmd != SRV_CANCEL:
                     self._send([b'', msg.uuid, CLI_CANCEL, DAT_RAW, b''])
         finally:
             del self.messages[msg.uuid]
+
+    def stream(self, func, *args, **kwargs):
+        for value in self._stream(CLI_STREAM, func, args, kwargs):
+            yield value
+
+    def stream_sync(self, func, *args, **kwargs):
+        for value in self._stream(CLI_STREAM_SYNC, func, args, kwargs):
+            yield value
 
     # engine
 
@@ -558,10 +589,10 @@ class AZRPCClient(object):
                     elif cmd == SRV_ERROR:
                         data = self._unserialize(data_type, data)
                         msg.result.set_exception(data)
-                    elif cmd == SRV_STREAM:
+                    elif cmd in (SRV_STREAM, SRV_STREAM_SYNC):
                         data = self._unserialize(data_type, data)
                         msg.init_stream()
-                        msg.queue.put((SRV_STREAM, data))
+                        msg.queue.put((cmd, data))
                     elif cmd == SRV_CANCEL:
                         assert data_type == DAT_RAW, ('Invalid data type', data_type)
                         msg.init_stream()
@@ -577,7 +608,7 @@ class AZRPCClient(object):
         log.warning('%s: Missing message for result %s', self.rpc.identity, uuid.encode('hex'))
 
     def on_unknown_control_message(self, cmd):
-        log.warning('%s: Unknown control message received: %s', self.rpc.identity, cmd.encode('hex'))
+        log.warning('%s: Unknown control message received: %s (ord: %i)', self.rpc.identity, cmd.encode('hex'), ord(cmd[0]))
 
 class ClientMessage(object):
     """RPC client message that is waiting for a result"""
