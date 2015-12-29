@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='azrpc',
-    version='1.0.0',
+    version='1.0.1',
     url='https://github.com/max0d41/azrpc',
     description='A robust and feature rich RPC system based on ZeroMQ and gevent.',
     packages=[

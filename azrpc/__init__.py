@@ -572,7 +572,7 @@ class AZRPCClient(object):
                     msg = self.messages[uuid]
                 except KeyError:
                     if cmd != SRV_CANCEL:
-                        self.on_missing_message(uuid)
+                        self.on_missing_message(uuid, cmd, data_type, data)
                 else:
                     msg.last = time.time()
                     if cmd == SRV_HEARTBEAT:
@@ -598,17 +598,17 @@ class AZRPCClient(object):
                         msg.init_stream()
                         msg.queue.put((SRV_CANCEL, None))
                     else:
-                        self.on_unknown_control_message(cmd)
+                        self.on_unknown_control_message(msg, cmd, data_type, data)
             except GreenletExit:
                 raise
             except Exception:
                 log.exception('%s: Error running at RPC client', self.rpc.identity)
 
-    def on_missing_message(self, uuid):
-        log.warning('%s: Missing message for result %s', self.rpc.identity, uuid.encode('hex'))
+    def on_missing_message(self, uuid, cmd, data_type, data):
+        log.warning('%s: Missing message for result %s, control message: %s (hex: %02x)', self.rpc.identity, uuid.encode('hex'), cmd, ord(cmd[0]))
 
-    def on_unknown_control_message(self, cmd):
-        log.warning('%s: Unknown control message received: %s (ord: %i)', self.rpc.identity, cmd.encode('hex'), ord(cmd[0]))
+    def on_unknown_control_message(self, msg, cmd, data_type, data):
+        log.warning('%s: Unknown control message received: %s (hex: %02x)', self.rpc.identity, cmd.encode('hex'), ord(cmd[0]))
 
 class ClientMessage(object):
     """RPC client message that is waiting for a result"""
