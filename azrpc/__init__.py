@@ -165,8 +165,7 @@ class AZRPC(FunctionRegister):
 
     def _call(self, call_func, target, name, args, kwargs):
         # Get the target
-        if target is not None:
-            target = self.get_client_address(target)
+        target = self.get_client_address(target)
         if target is None:
             target = self.ipc
         else:
@@ -268,10 +267,10 @@ class ServerMessage(object):
             if msg_type == CLI_RUN:
                 self.heartbeat_msg = SRV_HEARTBEAT
             else:
-                if msg_type == CLI_STREAM_SYNC:
-                    self.acknowledged_queue = Queue()
                 self.heartbeat_msg = SRV_PING
                 self.last_recv = time.time()
+                if msg_type == CLI_STREAM_SYNC:
+                    self.acknowledged_queue = Queue()
             try:
                 self.server.messages[self.uuid] = self
                 if self.server.control_greenlet is None:
@@ -605,7 +604,8 @@ class AZRPCClient(object):
                 log.exception('%s: Error running at RPC client', self.rpc.identity)
 
     def on_missing_message(self, uuid, cmd, data_type, data):
-        log.warning('%s: Missing message for result %s, control message: %s (hex: %02x)', self.rpc.identity, uuid.encode('hex'), cmd, ord(cmd[0]))
+        if cmd not in (SRV_HEARTBEAT, SRV_PING):
+            log.warning('%s: Missing message for result %s, control message: %s (hex: %02x)', self.rpc.identity, uuid.encode('hex'), cmd, ord(cmd[0]))
 
     def on_unknown_control_message(self, msg, cmd, data_type, data):
         log.warning('%s: Unknown control message received: %s (hex: %02x)', self.rpc.identity, cmd.encode('hex'), ord(cmd[0]))
