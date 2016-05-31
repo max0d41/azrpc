@@ -105,24 +105,24 @@ class AZRPC(FunctionRegister):
             def __call__(s, *args, **kwargs):
                 return func(*args, **kwargs)
 
-            def spawn(s, target, *args, **kwargs):
-                return self.spawn(target, name, *args, **kwargs)
+            def spawn(s, _target_, *args, **kwargs):
+                return self.spawn(_target_, name, *args, **kwargs)
 
-            def spawn_safe(s, target, *args, **kwargs):
-                return self.spawn_safe(target, name, *args, **kwargs)
+            def spawn_safe(s, _target_, *args, **kwargs):
+                return self.spawn_safe(_target_, name, *args, **kwargs)
 
-            def run(s, target, *args, **kwargs):
-                return self.run(target, name, *args, **kwargs)
+            def run(s, _target_, *args, **kwargs):
+                return self.run(_target_, name, *args, **kwargs)
 
-            def execute(s, target, *args, **kwargs):
-                return self.execute(target, name, *args, **kwargs)
+            def execute(s, _target_, *args, **kwargs):
+                return self.execute(_target_, name, *args, **kwargs)
 
-            def stream(s, target, *args, **kwargs):
-                for data in self.stream(target, name, *args, **kwargs):
+            def stream(s, _target_, *args, **kwargs):
+                for data in self.stream(_target_, name, *args, **kwargs):
                     yield data
 
-            def stream_sync(s, target, *args, **kwargs):
-                for data in self.stream_sync(target, name, *args, **kwargs):
+            def stream_sync(s, _target_, *args, **kwargs):
+                for data in self.stream_sync(_target_, name, *args, **kwargs):
                     yield data
 
         return Func()
@@ -130,37 +130,37 @@ class AZRPC(FunctionRegister):
     def get_client_address(self, target):
         return target
 
-    def spawn(self, target, name, *args, **kwargs):
+    def spawn(self, _target_, _name_, *args, **kwargs):
         """Call function and give never a response. Fire and forget
         Request only method."""
-        return self._call('spawn', target, name, args, kwargs)
+        return self._call('spawn', _target_, _name_, args, kwargs)
 
-    def spawn_safe(self, target, name, *args, **kwargs):
+    def spawn_safe(self, _target_, _name_, *args, **kwargs):
         """Call function and give a response when the message is arrived at the server. This is basically like the `run` function.
         Request with immediately response method."""
-        return self._call('spawn_safe', target, name, args, kwargs)
+        return self._call('spawn_safe', _target_, _name_, args, kwargs)
 
-    def run(self, target, name, *args, **kwargs):
+    def run(self, _target_, _name_, *args, **kwargs):
         """Call function and wait for response. The server is ignoring connection loss to client.
         Heartbeat method."""
-        return self._call('run', target, name, args, kwargs)
+        return self._call('run', _target_, _name_, args, kwargs)
 
-    def execute(self, target, name, *args, **kwargs):
+    def execute(self, _target_, _name_, *args, **kwargs):
         """Call function and wait for response. Interrupt the call on the server if the client connection is lost.
         Ping pong method."""
-        return self._call('execute', target, name, args, kwargs)
+        return self._call('execute', _target_, _name_, args, kwargs)
 
-    def stream(self, target, name, *args, **kwargs):
+    def stream(self, _target_, _name_, *args, **kwargs):
         """Call function and wait for response, then start the generator. Interrupt the call on the server if the client connection is lost.
         Ping pong method."""
-        for data in self._call('stream', target, name, args, kwargs):
+        for data in self._call('stream', _target_, _name_, args, kwargs):
             yield data
 
-    def stream_sync(self, target, name, *args, **kwargs):
+    def stream_sync(self, _target_, _name_, *args, **kwargs):
         """Call function and wait for response, then start the generator. Interrupt the call on the server if the client connection is lost.
         Sends the next packet only when the receive is acknowledged.
         Ping pong method."""
-        for data in self._call('stream_sync', target, name, args, kwargs):
+        for data in self._call('stream_sync', _target_, _name_, args, kwargs):
             yield data
 
     def _call(self, call_func, target, name, args, kwargs):
